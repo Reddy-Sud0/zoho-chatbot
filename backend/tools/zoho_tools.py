@@ -38,9 +38,6 @@ from langchain_core.tools import tool
 
 from zoho.zoho_client import ZohoClient
 
-
-# ── READ tools ────────────────────────────────────────────────────
-
 @tool
 async def list_projects(access_token: str, portal_id: str) -> str:
     """
@@ -52,7 +49,6 @@ async def list_projects(access_token: str, portal_id: str) -> str:
     client = ZohoClient(access_token=access_token, portal_id=portal_id)
     data = await client.list_projects()
     return json.dumps(data, ensure_ascii=False)
-
 
 @tool
 async def list_tasks(
@@ -81,10 +77,9 @@ async def list_tasks(
     if assignee:
         filters["owner"] = assignee
     if due_date:
-        filters["due_date"] = due_date  # BUG FIX: was silently dropped before
+        filters["due_date"] = due_date
     data = await client.list_tasks(project_id=project_id, filters=filters)
     return json.dumps(data, ensure_ascii=False)
-
 
 @tool
 async def get_task_details(
@@ -103,7 +98,6 @@ async def get_task_details(
     data = await client.get_task_details(project_id=project_id, task_id=task_id)
     return json.dumps(data, ensure_ascii=False)
 
-
 @tool
 async def list_project_members(
     access_token: str,
@@ -119,7 +113,6 @@ async def list_project_members(
     client = ZohoClient(access_token=access_token, portal_id=portal_id)
     data = await client.list_project_members(project_id=project_id)
     return json.dumps(data, ensure_ascii=False)
-
 
 @tool
 async def get_task_utilisation(
@@ -137,9 +130,6 @@ async def get_task_utilisation(
     client = ZohoClient(access_token=access_token, portal_id=portal_id)
     data = await client.get_task_utilisation(project_id=project_id)
     return json.dumps(data, ensure_ascii=False)
-
-
-# ── WRITE tools ───────────────────────────────────────────────────
 
 @tool
 async def create_task(
@@ -176,7 +166,6 @@ async def create_task(
     data = await client.create_task(project_id=project_id, payload=payload)
     return json.dumps(data, ensure_ascii=False)
 
-
 @tool
 async def update_task(
     access_token: str,
@@ -208,7 +197,7 @@ async def update_task(
     if status:
         payload["status"] = status
     if assignee:
-        payload["person_responsible"] = assignee  # BUG FIX: was dropped before
+        payload["person_responsible"] = assignee
     if due_date:
         payload["due_date"] = due_date
     if priority:
@@ -217,7 +206,6 @@ async def update_task(
         project_id=project_id, task_id=task_id, payload=payload
     )
     return json.dumps(data, ensure_ascii=False)
-
 
 @tool
 async def delete_task(

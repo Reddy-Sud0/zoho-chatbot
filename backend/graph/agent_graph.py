@@ -54,13 +54,9 @@ from typing_extensions import TypedDict
 
 from agents import ActionAgent, QueryAgent, RouterAgent
 
-# ── Singleton agent instances (one per process lifetime) ─────────
 _router = RouterAgent()
 _query = QueryAgent()
 _action = ActionAgent()
-
-
-# ── State schema ─────────────────────────────────────────────────
 
 class AgentState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
@@ -75,30 +71,21 @@ class AgentState(TypedDict):
     short_term_context: dict
     long_term_context: dict
 
-
-# ── Node wrappers (thin async functions that delegate to agents) ──
-
 async def router_node(state: AgentState) -> AgentState:
     """Router node — delegates to RouterAgent.run()."""
-    return await _router.run(state)  # type: ignore[arg-type]
-
+    return await _router.run(state)
 
 async def query_node(state: AgentState) -> AgentState:
     """Query node — delegates to QueryAgent.run()."""
-    return await _query.run(state)  # type: ignore[arg-type]
-
+    return await _query.run(state)
 
 async def action_node(state: AgentState) -> AgentState:
     """Action node — delegates to ActionAgent.run()."""
-    return await _action.run(state)  # type: ignore[arg-type]
-
+    return await _action.run(state)
 
 def _select_agent(state: AgentState) -> str:
     """Conditional edge: read route flag and pick the next node."""
     return state.get("route", "query")
-
-
-# ── Graph construction ────────────────────────────────────────────
 
 def build_agent_graph() -> Any:
     """
@@ -108,12 +95,10 @@ def build_agent_graph() -> Any:
     """
     graph: StateGraph = StateGraph(AgentState)
 
-    # Nodes
     graph.add_node("router_node", router_node)
     graph.add_node("query_node", query_node)
     graph.add_node("action_node", action_node)
 
-    # Edges
     graph.add_edge(START, "router_node")
     graph.add_conditional_edges(
         "router_node",
@@ -126,6 +111,4 @@ def build_agent_graph() -> Any:
     checkpointer = MemorySaver()
     return graph.compile(checkpointer=checkpointer)
 
-
-# ── Module-level compiled graph (imported by main.py) ────────────
 agent_graph = build_agent_graph()

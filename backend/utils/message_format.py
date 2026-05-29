@@ -3,7 +3,6 @@ from __future__ import annotations
 import ast
 from typing import Any
 
-
 def normalize_reply_text(content: Any) -> str:
     """Convert Gemini/LangChain message content into plain user-facing text."""
     if content is None:

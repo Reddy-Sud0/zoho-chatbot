@@ -12,7 +12,6 @@ import httpx
 BASE = "http://127.0.0.1:8000"
 DEFAULT_SESSION = "7fc46e29-53db-4e70-97bd-24d8f5de4cde"
 
-
 async def chat(client: httpx.AsyncClient, session_id: str, message: str, confirmed=None):
     body = {"session_id": session_id, "message": message}
     if confirmed is not None:
@@ -22,14 +21,11 @@ async def chat(client: httpx.AsyncClient, session_id: str, message: str, confirm
         return {"error": r.text, "status_code": r.status_code}
     return r.json()
 
-
 def ok(name: str, detail: str = ""):
     print(f"  PASS  {name}" + (f" — {detail[:80]}" if detail else ""))
 
-
 def fail(name: str, detail: str):
     print(f"  FAIL  {name} — {detail[:200]}")
-
 
 async def main():
     session_id = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_SESSION
@@ -44,7 +40,6 @@ async def main():
         project_id = None
         task_id = None
 
-        # 1 list_projects (READ, Query, no HIL)
         r = await chat(client, session_id, "What projects do I have?")
         if r.get("error"):
             fail("1 list_projects", str(r.get("error")))
@@ -62,7 +57,6 @@ async def main():
             if projects:
                 project_id = str(projects[0].get("id") or projects[0].get("id_string") or "")
 
-        # 2 list_tasks
         msg = f"List all tasks in project id {project_id}" if project_id else "Show tasks for the first project"
         r = await chat(client, session_id, msg)
         if r.get("awaiting_confirmation"):
@@ -70,28 +64,24 @@ async def main():
         else:
             ok("2 list_tasks", "Query agent, no HIL")
 
-        # 3 get_task_details (may skip if no tasks)
         r = await chat(client, session_id, "Show details for the first task in the first project")
         if r.get("awaiting_confirmation"):
             fail("3 get_task_details", "unexpected HIL")
         else:
             ok("3 get_task_details", r.get("reply", "")[:60])
 
-        # 4 list_project_members
         r = await chat(client, session_id, "Who are the members of the first project?")
         if r.get("awaiting_confirmation"):
             fail("4 list_project_members", "unexpected HIL")
         else:
             ok("4 list_project_members", "Query agent, no HIL")
 
-        # 5 get_task_utilisation
         r = await chat(client, session_id, "Who has the most tasks in the first project?")
         if r.get("awaiting_confirmation"):
             fail("5 get_task_utilisation", "unexpected HIL")
         else:
             ok("5 get_task_utilisation", "Query agent, no HIL")
 
-        # 6 create_task + HIL yes
         create_msg = (
             f"Create a task called Acceptance Test Task in project {project_id}"
             if project_id
@@ -110,7 +100,6 @@ async def main():
             else:
                 ok("6 create_task execute", r2.get("reply", "")[:60])
 
-        # 7 update_task + HIL cancel
         r = await chat(client, session_id, "Update the Acceptance Test Task status to completed")
         if not r.get("awaiting_confirmation"):
             fail("7 update_task HIL", "expected confirmation")
@@ -122,7 +111,6 @@ async def main():
             else:
                 ok("7 update_task HIL cancel", r2.get("reply", "")[:60])
 
-        # 8 delete_task + HIL
         r = await chat(client, session_id, "Delete task named Acceptance Test Task")
         if not r.get("awaiting_confirmation"):
             fail("8 delete_task HIL", "expected confirmation")
@@ -133,7 +121,6 @@ async def main():
 
     print("\nDone.")
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(asyncio.run(main()))

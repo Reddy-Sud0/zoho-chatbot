@@ -5,7 +5,6 @@ import httpx
 
 from config import settings
 
-
 def _safe_json(resp: httpx.Response) -> dict:
     text = (resp.text or "").strip()
     if not text:
@@ -30,9 +29,7 @@ def _safe_json(resp: httpx.Response) -> dict:
             "body": text[:500],
         }
 
-# OAuth codes are single-use; browsers may hit /auth/callback twice.
 _processed_codes: dict[str, str] = {}
-
 
 class ZohoOAuth:
     def get_authorization_url(self) -> str:
@@ -128,7 +125,7 @@ class ZohoOAuth:
         base = (accounts_url or settings.ZOHO_ACCOUNTS_URL).rstrip("/")
         url = f"{base}/oauth/user/info"
         async with httpx.AsyncClient() as client:
-            # Zoho accounts user-info can vary by auth scheme depending on account/DC.
+
             for auth_header in (f"Zoho-oauthtoken {access_token}", f"Bearer {access_token}"):
                 resp = await client.get(url, headers={"Authorization": auth_header}, timeout=30)
                 if resp.status_code < 400:

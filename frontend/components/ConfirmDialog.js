@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 
-/* ─── Warning icon ─── */
 function WarningIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5 text-amber-400" stroke="currentColor" strokeWidth="1.8">
@@ -32,11 +31,9 @@ export default function ConfirmDialog({ description, onConfirm, onCancel }) {
         boxShadow: "0 0 30px rgba(245, 158, 11, 0.08)",
       }}
     >
-      {/* Top accent bar */}
       <div className="h-0.5 w-full bg-gradient-to-r from-amber-500/60 via-amber-400 to-amber-500/60" />
 
       <div className="p-4">
-        {/* Header */}
         <div className="flex items-center gap-2.5 mb-3">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/15">
             <WarningIcon />
@@ -47,7 +44,6 @@ export default function ConfirmDialog({ description, onConfirm, onCancel }) {
           </div>
         </div>
 
-        {/* Description */}
         <div
           className="mb-4 rounded-xl p-3 text-sm leading-relaxed text-amber-100/80"
           style={{ background: "rgba(245, 158, 11, 0.06)", border: "1px solid rgba(245, 158, 11, 0.12)" }}
@@ -55,7 +51,6 @@ export default function ConfirmDialog({ description, onConfirm, onCancel }) {
           {description}
         </div>
 
-        {/* Actions */}
         <div className="flex items-center gap-2">
           <button
             onClick={onConfirm}

@@ -10,7 +10,6 @@ DEMO_PROJECT_NAMES = [
     "Internal Operations",
 ]
 
-
 async def ensure_demo_projects(access_token: str, portal_id: str, target_count: int = 5) -> dict:
     """
     Ensure at least `target_count` projects exist in the portal.

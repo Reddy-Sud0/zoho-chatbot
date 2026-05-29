@@ -56,8 +56,6 @@ from zoho.zoho_client import ZohoClient
 
 logger = logging.getLogger(__name__)
 
-# ── Application factory ───────────────────────────────────────────
-
 app = FastAPI(
     title="Zoho AI Project Chatbot",
     description=(
@@ -76,14 +74,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 @app.on_event("startup")
 async def _startup() -> None:
     init_db()
     logger.info("Database initialised")
-
-
-# ── Private helpers ───────────────────────────────────────────────
 
 def _get_session(db: DbSession, session_id: str) -> UserSession:
     """Look up and return a session row, or raise 401."""
@@ -92,14 +86,12 @@ def _get_session(db: DbSession, session_id: str) -> UserSession:
         raise HTTPException(status_code=401, detail="Invalid or expired session_id.")
     return sess
 
-
 def _get_user(db: DbSession, user_id: str) -> User:
     """Look up and return a user row, or raise 401."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=401, detail="User not found.")
     return user
-
 
 def _get_token(db: DbSession, user_id: str) -> Token:
     """Look up and return a token row, or raise 401."""
@@ -110,7 +102,6 @@ def _get_token(db: DbSession, user_id: str) -> Token:
             detail="No OAuth token found. Please log in again.",
         )
     return token
-
 
 async def _ensure_fresh_token(db: DbSession, token: Token) -> Token:
     """
@@ -129,7 +120,6 @@ async def _ensure_fresh_token(db: DbSession, token: Token) -> Token:
         logger.info("Token refreshed successfully for user %s", token.user_id)
     return token
 
-
 def _html_error(title: str, body: str, status: int = 400) -> HTMLResponse:
     """Return a minimal but readable HTML error page."""
     return HTMLResponse(
@@ -142,10 +132,7 @@ def _html_error(title: str, body: str, status: int = 400) -> HTMLResponse:
         status_code=status,
     )
 
-
-# ── OAuth endpoints ───────────────────────────────────────────────
-
-@app.get("/auth/login", summary="Start Zoho OAuth flow")
+@app.get("/auth/login", summary="Start Zoho OAuth flow", response_model=None)
 async def login() -> RedirectResponse:
     """Redirect the browser to the Zoho OAuth consent screen."""
     oauth = ZohoOAuth()
@@ -153,8 +140,7 @@ async def login() -> RedirectResponse:
     logger.info("Redirecting to Zoho OAuth: %s", url[:80])
     return RedirectResponse(url)
 
-
-@app.get("/auth/callback", summary="Handle Zoho OAuth callback")
+@app.get("/auth/callback", summary="Handle Zoho OAuth callback", response_model=None)
 async def callback(
     code: str | None = None,
     error: str | None = None,
@@ -170,7 +156,6 @@ async def callback(
     if not code:
         return _html_error("Missing Auth Code", "Zoho did not return an authorisation code.")
 
-    # Idempotency guard — browsers may replay the callback URL.
     existing_redirect = ZohoOAuth.get_redirect_for_code(code)
     if existing_redirect:
         logger.info("Replayed OAuth code — reusing saved redirect")
@@ -209,13 +194,11 @@ async def callback(
     except ValueError as exc:
         return _html_error("Portal Lookup Failed", str(exc))
 
-    # Bootstrap demo projects (no-op if enough already exist)
     try:
         await ensure_demo_projects(access_token, portal_id, target_count=5)
     except Exception as exc:
         logger.warning("Demo project bootstrap failed (non-fatal): %s", exc)
 
-    # Resolve user info
     user_info = await oauth.get_zoho_user_info(access_token, accounts_url=accounts_server) or {}
     zoho_user_id = str(user_info.get("ZUID") or user_info.get("zuid") or "")
     email = user_info.get("Email") or user_info.get("email") or ""
@@ -226,7 +209,6 @@ async def callback(
     if not email:
         email = f"{zoho_user_id}@zoho.local"
 
-    # Upsert user
     user = db.query(User).filter(User.zoho_user_id == zoho_user_id).first()
     if user:
         user.email = email or user.email
@@ -242,7 +224,6 @@ async def callback(
         db.add(user)
         db.flush()
 
-    # Upsert token
     expires_at = datetime.utcnow() + timedelta(seconds=int(tokens.get("expires_in", 3600)))
     token = db.query(Token).filter(Token.user_id == user.id).first()
     if token:
@@ -258,7 +239,6 @@ async def callback(
         )
         db.add(token)
 
-    # Create session
     session_id = str(uuid.uuid4())
     session = UserSession(session_id=session_id, user_id=user.id)
     db.add(session)
@@ -270,9 +250,6 @@ async def callback(
 
     logger.info("Login successful for user %s, session %s", email, session_id[:8])
     return RedirectResponse(url=redirect_url, status_code=302)
-
-
-# ── Chat endpoint ─────────────────────────────────────────────────
 
 @app.post("/chat", response_model=ChatResponse, summary="Send a message to the AI agent")
 async def chat(request: ChatRequest, db: DbSession = Depends(get_db)) -> ChatResponse:
@@ -296,7 +273,6 @@ async def chat(request: ChatRequest, db: DbSession = Depends(get_db)) -> ChatRes
     short_term = memory.get_all_short(request.session_id)
     long_term = await memory.get_all_long(user.id)
 
-    # Restore pending HIL action from short-term memory
     pending_raw = memory.get_short(request.session_id, "pending_action")
     pending_from_memory: dict = {}
     if pending_raw:
@@ -330,10 +306,18 @@ async def chat(request: ChatRequest, db: DbSession = Depends(get_db)) -> ChatRes
             config={"configurable": {"thread_id": request.session_id}},
         )
     except Exception as exc:
+        err_str = str(exc)
         logger.error("Agent graph invocation failed: %s", exc, exc_info=True)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        if "RESOURCE_EXHAUSTED" in err_str or "429" in err_str:
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    "The AI service is temporarily unavailable due to rate limiting. "
+                    "Please wait a moment and try again."
+                ),
+            ) from exc
+        raise HTTPException(status_code=500, detail=err_str) from exc
 
-    # Extract reply text
     messages = result.get("messages") or []
     last_msg = messages[-1] if messages else None
     raw_reply = getattr(last_msg, "content", None)
@@ -346,13 +330,11 @@ async def chat(request: ChatRequest, db: DbSession = Depends(get_db)) -> ChatRes
     awaiting = bool(result.get("awaiting_confirmation"))
     pending_action = result.get("pending_action") or None
 
-    # Persist HIL state across requests
     if awaiting and pending_action:
         memory.set_short(request.session_id, "pending_action", json.dumps(pending_action))
     else:
         memory.set_short(request.session_id, "pending_action", "")
 
-    # Update project context in both short-term and long-term memory
     if not awaiting and user.portal_id:
         await _refresh_project_memory(token.access_token, user, memory, request.session_id)
 
@@ -361,7 +343,6 @@ async def chat(request: ChatRequest, db: DbSession = Depends(get_db)) -> ChatRes
         awaiting_confirmation=awaiting,
         pending_action=pending_action,
     )
-
 
 async def _refresh_project_memory(
     access_token: str,
@@ -394,14 +375,10 @@ async def _refresh_project_memory(
     except Exception as exc:
         logger.warning("Could not refresh project memory: %s", exc)
 
-
-# ── Utility endpoints ─────────────────────────────────────────────
-
 @app.get("/health", summary="Liveness probe")
 async def health() -> dict:
     """Returns 200 OK when the server is running."""
     return {"status": "ok", "version": "1.0.0"}
-
 
 @app.get("/projects", summary="List projects (debug)")
 async def list_projects(

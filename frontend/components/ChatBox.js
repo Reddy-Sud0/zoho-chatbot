@@ -1,6 +1,5 @@
 import { useRef, useEffect } from "react";
 
-/* ─── Send icon ─── */
 function SendIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" stroke="currentColor" strokeWidth="2">
@@ -13,7 +12,6 @@ function SendIcon() {
 export default function ChatBox({ value, onChange, onSend, disabled }) {
   const textareaRef = useRef(null);
 
-  /* Auto-resize textarea */
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -39,7 +37,6 @@ export default function ChatBox({ value, onChange, onSend, disabled }) {
         boxShadow: value ? "0 0 0 2px rgba(124,58,237,0.2), 0 0 20px rgba(124,58,237,0.08)" : "none",
       }}
     >
-      {/* Mic / attachment hint icon */}
       <button
         type="button"
         className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[#5c6285] transition-colors hover:text-violet-400"
@@ -53,7 +50,6 @@ export default function ChatBox({ value, onChange, onSend, disabled }) {
         </svg>
       </button>
 
-      {/* Auto-grow textarea */}
       <textarea
         ref={textareaRef}
         rows={1}
@@ -66,12 +62,10 @@ export default function ChatBox({ value, onChange, onSend, disabled }) {
         style={{ maxHeight: "120px", fontFamily: "Inter, sans-serif" }}
       />
 
-      {/* Character count hint */}
       {value.length > 0 && (
         <span className="mb-1 text-[10px] text-[#5c6285] shrink-0">{value.length}</span>
       )}
 
-      {/* Send button */}
       <button
         onClick={onSend}
         disabled={!canSend}

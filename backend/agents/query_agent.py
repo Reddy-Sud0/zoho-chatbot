@@ -27,9 +27,10 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from typing import Final
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from agents.base_agent import BaseAgent
 from tools.zoho_tools import (
@@ -80,7 +81,6 @@ Response rules:
     from short-term context.\
 """
 
-
 class QueryAgent(BaseAgent):
     """
     Read-only agent.  Calls Zoho read tools and returns a markdown
@@ -96,8 +96,6 @@ class QueryAgent(BaseAgent):
             long_term=json.dumps(state.get("long_term_context") or {}, ensure_ascii=False),
         )
 
-        # Inject auth context transparently in the user turn so tools can pick
-        # up access_token / portal_id without the user having to provide them.
         augmented_user_content = (
             f"{user_message}\n\n"
             f"[ctx: access_token={state['access_token']} "
@@ -113,10 +111,6 @@ class QueryAgent(BaseAgent):
         state["messages"].append(reply)
         return state
 
-    # ──────────────────────────────────────────────────────────────
-    # Tool execution loop
-    # ──────────────────────────────────────────────────────────────
-
     async def _tool_loop(self, messages: list) -> AIMessage:
         """
         ReAct-style tool loop.
@@ -129,12 +123,37 @@ class QueryAgent(BaseAgent):
         current = list(messages)
 
         for iteration in range(MAX_TOOL_ITERATIONS):
-            ai_msg: AIMessage = await llm.ainvoke(current)
+            try:
+                ai_msg: AIMessage = await llm.ainvoke(current)
+            except Exception as exc:
+                err_str = str(exc)
+                self.log_error("LLM call failed inside tool loop", exc=exc)
+                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                    return AIMessage(
+                        content=(
+                            "⚠️ The AI service is temporarily busy due to rate limiting. "
+                            "Please wait 30–60 seconds and try again."
+                        )
+                    )
+                if "API_KEY" in err_str.upper() or "INVALID_ARGUMENT" in err_str:
+                    return AIMessage(
+                        content=(
+                            "⚠️ The AI service could not be reached (invalid or missing API key). "
+                            "Please check the GOOGLE_API_KEY in backend/.env."
+                        )
+                    )
+                return AIMessage(
+                    content=(
+                        f"⚠️ The AI service returned an error: {err_str[:200]}. "
+                        "Please try again in a moment."
+                    )
+                )
+
             current.append(ai_msg)
 
             tool_calls = getattr(ai_msg, "tool_calls", None) or []
             if not tool_calls:
-                # Plain answer — we're done.
+
                 return ai_msg
 
             self.log_info(
@@ -145,7 +164,9 @@ class QueryAgent(BaseAgent):
 
             for call in tool_calls:
                 result = await self._invoke_tool(call)
-                current.append(AIMessage(content=result))
+
+                tool_call_id = call.get("id") or str(uuid.uuid4())
+                current.append(ToolMessage(content=result, tool_call_id=tool_call_id))
 
         self.log_error("Hit tool iteration cap — returning safe fallback")
         return AIMessage(
@@ -171,10 +192,6 @@ class QueryAgent(BaseAgent):
         except Exception as exc:
             self.log_error(f"Tool {name} raised an exception", exc=exc)
             return json.dumps({"error": str(exc)})
-
-    # ──────────────────────────────────────────────────────────────
-    # Helpers
-    # ──────────────────────────────────────────────────────────────
 
     @staticmethod
     def _last_user_text(messages: list) -> str:

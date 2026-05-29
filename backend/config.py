@@ -32,10 +32,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-
 @dataclass(frozen=True)
 class Settings:
-    # ── Zoho OAuth ───────────────────────────────────────────────
+
     ZOHO_CLIENT_ID: str = field(
         default_factory=lambda: os.getenv("ZOHO_CLIENT_ID", "")
     )
@@ -58,24 +57,20 @@ class Settings:
         )
     )
 
-    # ── AI ───────────────────────────────────────────────────────
     GOOGLE_API_KEY: str = field(
         default_factory=lambda: os.getenv("GOOGLE_API_KEY", "")
     )
 
-    # ── Database ─────────────────────────────────────────────────
     DATABASE_URL: str = field(
         default_factory=lambda: os.getenv(
             "DATABASE_URL", "sqlite:///./zoho_chatbot.db"
         )
     )
 
-    # ── Security ─────────────────────────────────────────────────
     SECRET_KEY: str = field(
         default_factory=lambda: os.getenv("SECRET_KEY", "")
     )
 
-    # ── Application ──────────────────────────────────────────────
     FRONTEND_BASE_URL: str = field(
         default_factory=lambda: os.getenv(
             "FRONTEND_BASE_URL", "http://localhost:3000"
@@ -103,11 +98,8 @@ class Settings:
                 "Please check backend/.env (copy from .env.example)."
             )
 
-
-# ── Module-level singleton ────────────────────────────────────────
 settings = Settings()
 
-# ── Logging configuration ─────────────────────────────────────────
 logging.basicConfig(
     level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
     format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",

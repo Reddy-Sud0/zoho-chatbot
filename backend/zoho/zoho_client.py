@@ -29,33 +29,39 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
-
-# ── Helpers ───────────────────────────────────────────────────────
-
 def _api_v3_base() -> str:
     """Resolve the canonical Zoho Projects API v3 base URL from settings."""
     base = settings.ZOHO_API_BASE.rstrip("/")
     if "/api/v3" in base:
         return base
-    # Legacy setting may end with /restapi — normalise it.
+
     if base.endswith("/restapi"):
         return base.replace("/restapi", "/api/v3")
     return "https://projectsapi.zoho.in/api/v3"
 
-
-def _as_list(payload: Any) -> list:
+def _as_list(payload: Any, *, raise_on_error: bool = False) -> list:
     """
     Coerce an arbitrary Zoho API response body into a list.
 
     Zoho wraps arrays under different keys depending on the endpoint
     (``projects``, ``tasks``, ``users``, ``items``, etc.).  This helper
     walks those keys so callers always get a plain ``list``.
+
+    If ``raise_on_error`` is True and the payload contains an ``error``
+    key, raises ``ValueError`` with the Zoho error message instead of
+    silently returning an empty list.
     """
     if isinstance(payload, list):
         return payload
     if isinstance(payload, dict):
         if payload.get("error"):
+            err_msg = str(payload.get("error", "unknown"))
+            code = payload.get("status_code", "")
             logger.warning("Zoho API returned error payload: %s", payload)
+            if raise_on_error:
+                raise ValueError(
+                    f"Zoho API error{f' (HTTP {code})' if code else ''}: {err_msg}"
+                )
             return []
         for key in (
             "projects", "projects_list",
@@ -67,9 +73,6 @@ def _as_list(payload: Any) -> list:
             if isinstance(val, list):
                 return val
     return []
-
-
-# ── Client class ──────────────────────────────────────────────────
 
 class ZohoClient:
     """
@@ -90,8 +93,6 @@ class ZohoClient:
             "Accept": "application/json",
         }
 
-    # ── Internal helpers ─────────────────────────────────────────
-
     @property
     def _json_headers(self) -> dict:
         """Headers for JSON POST/PATCH requests."""
@@ -101,6 +102,30 @@ class ZohoClient:
         """Build a URL rooted at /portal/{portal_id}/…"""
         path = "/".join(str(p).strip("/") for p in parts)
         return f"{self._base}/portal/{self._portal}/{path}"
+
+    @staticmethod
+    def _raise_with_body(resp: httpx.Response) -> None:
+        """
+        Raise ``httpx.HTTPStatusError`` but include the Zoho response body
+        in the message so callers see the actual API error, not just the
+        HTTP status line.
+        """
+        try:
+            body = resp.json()
+
+            detail = (
+                body.get("errorMessage")
+                or body.get("error")
+                or body.get("message")
+                or str(body)[:300]
+            )
+        except Exception:
+            detail = resp.text[:300]
+        raise httpx.HTTPStatusError(
+            f"HTTP {resp.status_code}: {detail}",
+            request=resp.request,
+            response=resp,
+        )
 
     async def _get_json(self, url: str, params: Optional[dict] = None) -> Any:
         """
@@ -121,7 +146,66 @@ class ZohoClient:
         except Exception:
             return {"error": "non_json_response", "body": resp.text[:300]}
 
-    # ── Portal ───────────────────────────────────────────────────
+    async def _resolve_assignee_to_zpuid(self, project_id: str, assignee: str) -> Optional[str]:
+        """
+        Resolve an assignee string (which could be a ZPUID, email, name,
+        or first name) to a valid Zoho Projects User ID (ZPUID).
+        """
+        if not assignee:
+            return None
+
+        assignee_str = str(assignee).strip()
+        if not assignee_str:
+            return None
+
+        try:
+            members = await self.list_project_members(project_id)
+        except Exception as exc:
+            logger.warning("Could not list project members to resolve assignee: %s", exc)
+            members = []
+
+        def get_zpuid(member: dict) -> str:
+            return str(member.get("id") or member.get("zpuid") or "")
+
+        for m in members:
+            zpuid = get_zpuid(m)
+            zuid = str(m.get("zuid") or "")
+            if assignee_str in (zpuid, zuid) and zpuid:
+                return zpuid
+
+        for m in members:
+            email = str(m.get("email") or "").lower()
+            if email == assignee_str.lower():
+                zpuid = get_zpuid(m)
+                if zpuid:
+                    return zpuid
+
+        for m in members:
+            name_fields = [
+                str(m.get("display_name") or "").lower(),
+                str(m.get("full_name") or "").lower(),
+                str(m.get("first_name") or "").lower(),
+                str(m.get("last_name") or "").lower(),
+                str(m.get("name") or "").lower()
+            ]
+            if assignee_str.lower() in name_fields:
+                zpuid = get_zpuid(m)
+                if zpuid:
+                    return zpuid
+
+        for m in members:
+            disp = str(m.get("display_name") or "").lower()
+            full = str(m.get("full_name") or "").lower()
+            email = str(m.get("email") or "").lower()
+            if assignee_str.lower() in disp or assignee_str.lower() in full or assignee_str.lower() in email:
+                zpuid = get_zpuid(m)
+                if zpuid:
+                    return zpuid
+
+        if assignee_str.isdigit():
+            return assignee_str
+
+        return None
 
     async def list_portals(self) -> list:
         """Return all Zoho Projects portals accessible by this token."""
@@ -131,15 +215,15 @@ class ZohoClient:
             resp.raise_for_status()
         return _as_list(resp.json())
 
-    # ── Projects ─────────────────────────────────────────────────
-
     async def list_projects(self) -> list:
         """Return all projects in the portal."""
         url = self._portal_url("projects")
         async with httpx.AsyncClient() as client:
             resp = await client.get(url, headers=self._headers, timeout=30)
-            resp.raise_for_status()
-        return _as_list(resp.json())
+        if resp.status_code >= 400:
+            self._raise_with_body(resp)
+        data = resp.json()
+        return _as_list(data, raise_on_error=True)
 
     async def create_project(self, name: str, description: str = "") -> dict:
         """Create a new project and return the created project object."""
@@ -152,8 +236,6 @@ class ZohoClient:
             resp.raise_for_status()
         data = resp.json()
         return data if isinstance(data, dict) else {"project": data}
-
-    # ── Tasks ────────────────────────────────────────────────────
 
     async def list_tasks(
         self,
@@ -182,8 +264,10 @@ class ZohoClient:
             resp = await client.get(
                 url, headers=self._headers, params=params, timeout=30
             )
-            resp.raise_for_status()
-        return _as_list(resp.json())
+        if resp.status_code >= 400:
+            self._raise_with_body(resp)
+        data = resp.json()
+        return _as_list(data, raise_on_error=True)
 
     async def get_task_details(self, project_id: str, task_id: str) -> dict:
         """Return full detail of a single task."""
@@ -207,12 +291,23 @@ class ZohoClient:
             body["priority"] = payload["priority"]
         if payload.get("due_date"):
             body["due_date"] = payload["due_date"]
-        if payload.get("person_responsible"):
-            body["person_responsible"] = payload["person_responsible"]
+
+        assignee = payload.get("person_responsible")
+        if assignee:
+            zpuid = await self._resolve_assignee_to_zpuid(project_id, assignee)
+            if zpuid:
+                body["owners_and_work"] = {
+                    "owners": [
+                        {
+                            "zpuid": zpuid
+                        }
+                    ]
+                }
 
         async with httpx.AsyncClient() as client:
             resp = await client.post(url, headers=self._json_headers, json=body, timeout=30)
-            resp.raise_for_status()
+        if resp.status_code >= 400:
+            self._raise_with_body(resp)
         data = resp.json()
         return data if isinstance(data, dict) else {"task": data}
 
@@ -232,7 +327,7 @@ class ZohoClient:
 
         if payload.get("status"):
             raw_status = payload["status"]
-            # Zoho accepts either {"id": <int>} or {"name": <str>}
+
             body["status"] = (
                 {"id": raw_status}
                 if str(raw_status).isdigit()
@@ -245,29 +340,37 @@ class ZohoClient:
         if payload.get("due_date"):
             body["due_date"] = payload["due_date"]
 
-        # ── BUG FIX: assignee was previously silently dropped ─────
-        if payload.get("person_responsible"):
-            body["person_responsible"] = payload["person_responsible"]
+        assignee = payload.get("person_responsible")
+        if assignee:
+            zpuid = await self._resolve_assignee_to_zpuid(project_id, assignee)
+            if zpuid:
+                body["owners_and_work"] = {
+                    "owners": [
+                        {
+                            "zpuid": zpuid
+                        }
+                    ]
+                }
 
         async with httpx.AsyncClient() as client:
             resp = await client.patch(url, headers=self._json_headers, json=body, timeout=30)
-            resp.raise_for_status()
+        if resp.status_code >= 400:
+            self._raise_with_body(resp)
         data = resp.json()
         return data if isinstance(data, dict) else {"task": data}
 
     async def delete_task(self, project_id: str, task_id: str) -> bool:
         """
-        Move a task to the portal trash (soft delete).
+        Delete a task by its ID.
 
         Returns ``True`` on success; raises ``httpx.HTTPStatusError`` on failure.
         """
-        url = self._portal_url("projects", project_id, "tasks", task_id, "trash")
+        url = self._portal_url("projects", project_id, "tasks", task_id)
         async with httpx.AsyncClient() as client:
-            resp = await client.post(url, headers=self._headers, timeout=30)
-            resp.raise_for_status()
+            resp = await client.delete(url, headers=self._headers, timeout=30)
+        if resp.status_code >= 400:
+            self._raise_with_body(resp)
         return True
-
-    # ── Members ──────────────────────────────────────────────────
 
     async def list_project_members(self, project_id: str) -> list:
         """
@@ -286,8 +389,6 @@ class ZohoClient:
         portal_url = self._portal_url("users")
         portal_data = await self._get_json(portal_url)
         return _as_list(portal_data)
-
-    # ── Utilisation ──────────────────────────────────────────────
 
     async def get_task_utilisation(self, project_id: str) -> dict:
         """

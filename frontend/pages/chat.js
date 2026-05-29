@@ -7,7 +7,6 @@ import ConfirmDialog from "../components/ConfirmDialog";
 import TypingIndicator from "../components/TypingIndicator";
 import { sendChat } from "../utils/api";
 
-/* ─── Suggestion chips ─── */
 const SUGGESTIONS = [
   { icon: "📋", label: "List my projects" },
   { icon: "✅", label: "Show open tasks" },
@@ -16,7 +15,6 @@ const SUGGESTIONS = [
   { icon: "📊", label: "Task utilisation report" },
 ];
 
-/* ─── Logo mark ─── */
 function LogoMark() {
   return (
     <div className="flex items-center gap-2.5">
@@ -29,7 +27,6 @@ function LogoMark() {
           <path d="M12 9V6" strokeLinecap="round" />
           <circle cx="12" cy="5" r="1.2" fill="currentColor" stroke="none" />
         </svg>
-        {/* Spinning glow ring */}
         <div className="absolute inset-0 rounded-xl border border-violet-400/30 animate-spin-slow" />
       </div>
       <div>
@@ -40,7 +37,6 @@ function LogoMark() {
   );
 }
 
-/* ─── Sidebar nav item ─── */
 function NavItem({ icon, label, active, onClick }) {
   return (
     <button
@@ -54,11 +50,9 @@ function NavItem({ icon, label, active, onClick }) {
   );
 }
 
-/* ─── Empty state ─── */
 function EmptyState({ onSuggest }) {
   return (
     <div className="flex flex-col items-center justify-center h-full px-8 text-center gap-6 select-none">
-      {/* Big icon */}
       <div className="relative">
         <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-violet-600/20 to-indigo-600/20 border border-violet-500/20">
           <svg viewBox="0 0 24 24" fill="none" className="h-10 w-10 text-violet-400" stroke="currentColor" strokeWidth="1.5">
@@ -80,7 +74,6 @@ function EmptyState({ onSuggest }) {
         </p>
       </div>
 
-      {/* Suggestion chips */}
       <div className="flex flex-wrap justify-center gap-2 max-w-sm">
         {SUGGESTIONS.map((s) => (
           <button
@@ -125,7 +118,6 @@ export default function ChatPage() {
     }
   }, [urlSessionId]);
 
-  /* Auto-scroll to bottom */
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
@@ -145,8 +137,9 @@ export default function ChatPage() {
       } else {
         setMessages((m) => [...m, { role: "bot", content: res.reply }]);
       }
-    } catch {
-      setMessages((m) => [...m, { role: "bot", content: "⚠️ Connection error. Please check the backend is running." }]);
+    } catch (err) {
+      const errMsg = err.response?.data?.detail || "Connection error. Please check the backend is running.";
+      setMessages((m) => [...m, { role: "bot", content: `⚠️ ${errMsg}` }]);
     } finally {
       setLoading(false);
     }
@@ -159,6 +152,9 @@ export default function ChatPage() {
       setAwaitingConfirm(false);
       setPendingAction(null);
       setMessages((m) => [...m, { role: "user", content: "✅ Confirmed" }, { role: "bot", content: res.reply }]);
+    } catch (err) {
+      const errMsg = err.response?.data?.detail || "Action execution failed. Please try again.";
+      setMessages((m) => [...m, { role: "bot", content: `⚠️ ${errMsg}` }]);
     } finally {
       setLoading(false);
     }
@@ -171,6 +167,9 @@ export default function ChatPage() {
       setAwaitingConfirm(false);
       setPendingAction(null);
       setMessages((m) => [...m, { role: "user", content: "❌ Cancelled" }, { role: "bot", content: res.reply }]);
+    } catch (err) {
+      const errMsg = err.response?.data?.detail || "Cancellation failed. Please try again.";
+      setMessages((m) => [...m, { role: "bot", content: `⚠️ ${errMsg}` }]);
     } finally {
       setLoading(false);
     }
@@ -199,7 +198,6 @@ export default function ChatPage() {
 
       <div className="bg-mesh flex h-screen w-screen overflow-hidden">
 
-        {/* ─── SIDEBAR ─── */}
         <aside
           className={`
             glass flex flex-col transition-all duration-300 ease-in-out shrink-0
@@ -207,14 +205,12 @@ export default function ChatPage() {
           `}
           style={{ borderRight: "1px solid rgba(255,255,255,0.07)" }}
         >
-          {/* Logo */}
           <div className="flex items-center justify-between p-4 pb-3">
             <LogoMark />
           </div>
 
           <div className="mx-4 mb-3 h-px bg-white/5" />
 
-          {/* Nav */}
           <nav className="flex flex-col gap-1 px-3 py-1">
             <NavItem icon="💬" label="Chat" active={activeNav === "chat"} onClick={() => setActiveNav("chat")} />
             <NavItem icon="📋" label="Projects" active={activeNav === "projects"} onClick={() => setActiveNav("projects")} />
@@ -225,7 +221,6 @@ export default function ChatPage() {
 
           <div className="mx-4 mt-3 mb-2 h-px bg-white/5" />
 
-          {/* Quick actions */}
           <div className="px-3">
             <p className="mb-2 px-3 text-[9px] font-semibold uppercase tracking-widest text-[#5c6285]">Quick Actions</p>
             {SUGGESTIONS.slice(0, 3).map((s) => (
@@ -240,7 +235,6 @@ export default function ChatPage() {
             ))}
           </div>
 
-          {/* Bottom: session + logout */}
           <div className="mt-auto p-4">
             <div className="mx-0 mb-3 h-px bg-white/5" />
             {hasSession ? (
@@ -283,15 +277,12 @@ export default function ChatPage() {
           </div>
         </aside>
 
-        {/* ─── MAIN CONTENT ─── */}
         <main className="flex flex-1 flex-col overflow-hidden">
 
-          {/* ─── TOP BAR ─── */}
           <header
             className="flex shrink-0 items-center gap-3 px-5 py-3"
             style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(10,11,20,0.6)", backdropFilter: "blur(12px)" }}
           >
-            {/* Hamburger */}
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
               className="flex h-8 w-8 items-center justify-center rounded-lg text-[#9ca3c2] transition-colors hover:bg-white/5 hover:text-white"
@@ -303,7 +294,6 @@ export default function ChatPage() {
               </svg>
             </button>
 
-            {/* Title */}
             <div className="flex-1">
               <h1 className="text-sm font-semibold text-white">
                 {activeNav.charAt(0).toUpperCase() + activeNav.slice(1)}
@@ -313,7 +303,6 @@ export default function ChatPage() {
               </p>
             </div>
 
-            {/* Status pill */}
             <div
               className="flex items-center gap-2 rounded-full px-3 py-1.5"
               style={{ background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.2)" }}
@@ -322,7 +311,6 @@ export default function ChatPage() {
               <span className="text-[10px] font-semibold text-emerald-400">Backend Live</span>
             </div>
 
-            {/* Model badge */}
             <div
               className="flex items-center gap-1.5 rounded-full px-3 py-1.5"
               style={{ background: "rgba(124,58,237,0.12)", border: "1px solid rgba(124,58,237,0.25)" }}
@@ -334,10 +322,9 @@ export default function ChatPage() {
             </div>
           </header>
 
-          {/* ─── MESSAGES AREA ─── */}
           <div className="flex-1 overflow-y-auto px-5 py-4">
             {!hasSession ? (
-              /* No session warning */
+
               <div className="flex flex-col items-center justify-center h-full gap-4">
                 <div className="flex h-16 w-16 items-center justify-center rounded-2xl" style={{ background: "rgba(244,63,94,0.1)", border: "1px solid rgba(244,63,94,0.2)" }}>
                   <svg viewBox="0 0 24 24" fill="none" className="h-8 w-8 text-rose-400" stroke="currentColor" strokeWidth="1.8">
@@ -368,7 +355,6 @@ export default function ChatPage() {
                   <Message key={idx} role={m.role} content={m.content} />
                 ))}
 
-                {/* HIL Confirm dialog inline */}
                 {awaitingConfirm && (
                   <ConfirmDialog
                     description={(pendingAction && pendingAction.description) || "I'm about to perform a write action. Would you like to continue?"}
@@ -377,7 +363,6 @@ export default function ChatPage() {
                   />
                 )}
 
-                {/* Typing indicator */}
                 {loading && <TypingIndicator />}
 
                 <div ref={bottomRef} />
@@ -385,7 +370,6 @@ export default function ChatPage() {
             )}
           </div>
 
-          {/* ─── INPUT BAR ─── */}
           {hasSession && (
             <div
               className="shrink-0 px-5 py-4"

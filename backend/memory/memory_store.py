@@ -41,16 +41,8 @@ from typing import Any, Optional
 
 from database.models import Memory
 
-# ── Module-level short-term store ────────────────────────────────
-# Using a single dict at module scope guarantees that all
-# MemoryStore instances (created fresh per HTTP request) share the
-# same in-process state.  A threading.Lock protects writes in
-# multi-threaded environments (e.g. Uvicorn with multiple workers
-# would each have their own process copy — acceptable for SQLite).
-
 _short_term_store: dict[str, dict[str, Any]] = {}
 _store_lock = threading.Lock()
-
 
 class MemoryStore:
     """
@@ -62,10 +54,6 @@ class MemoryStore:
 
     def __init__(self, db_session) -> None:
         self._db = db_session
-
-    # ──────────────────────────────────────────────────────────────
-    # Short-term (in-process, per session)
-    # ──────────────────────────────────────────────────────────────
 
     def get_short(self, session_id: str, key: str) -> Any:
         """Return a single short-term value, or ``None`` if missing."""
@@ -95,10 +83,6 @@ class MemoryStore:
             if session_id not in _short_term_store:
                 _short_term_store[session_id] = {}
             _short_term_store[session_id].update(data)
-
-    # ──────────────────────────────────────────────────────────────
-    # Long-term (SQLite, per user)
-    # ──────────────────────────────────────────────────────────────
 
     async def get_long(self, user_id: str, key: str) -> Optional[str]:
         """Return the long-term value for ``user_id/key``, or ``None``."""

@@ -1,7 +1,6 @@
 export default function TypingIndicator() {
   return (
     <div className="flex justify-start gap-3 my-4 animate-fade-right">
-      {/* Bot avatar mini */}
       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 to-indigo-700 shadow-lg">
         <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5 text-white" stroke="currentColor" strokeWidth="1.8">
           <rect x="5" y="9" width="14" height="10" rx="2" />

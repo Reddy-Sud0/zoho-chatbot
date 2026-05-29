@@ -19,7 +19,6 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from agents.base_agent import BaseAgent
 
-
 _SYSTEM_PROMPT = """\
 You are a strict router for a project-management chatbot.
 Classify the user's intent as exactly one of:
@@ -40,7 +39,6 @@ _WRITE_KEYWORDS = frozenset(
     }
 )
 
-
 class RouterAgent(BaseAgent):
     """
     Decides whether the user's request requires a read (Query) or
@@ -49,6 +47,11 @@ class RouterAgent(BaseAgent):
     """
 
     async def run(self, state: dict) -> dict:
+        if state.get("awaiting_confirmation"):
+            self.log_info("Awaiting confirmation — routing directly to action")
+            state["route"] = "action"
+            return state
+
         message = self._extract_last_user_message(state["messages"])
         self.log_info("Routing message", preview=message[:60])
 
@@ -58,12 +61,25 @@ class RouterAgent(BaseAgent):
         self.log_info("Route decided", route=route)
         return state
 
-    # ──────────────────────────────────────────────────────────────
-    # Private helpers
-    # ──────────────────────────────────────────────────────────────
-
     async def _llm_classify(self, message: str) -> str:
-        """Ask the LLM to classify the message; fall back to keywords."""
+        """
+        Classify the message as 'query' or 'action'.
+
+        Strategy (quota-efficient):
+          1. Try the keyword scan first — handles the vast majority of requests
+             instantly and at zero API cost.
+          2. Only call the LLM when keywords give no strong signal (i.e. no
+             write keyword matched AND the message is >20 chars, suggesting a
+             complex/ambiguous intent like "what's going on with my team?").
+        """
+        words = set(message.lower().split())
+
+        if words & _WRITE_KEYWORDS:
+            return "action"
+
+        if len(message) <= 20:
+            return "query"
+
         try:
             llm = self.get_llm()
             response = await llm.ainvoke(
@@ -77,11 +93,10 @@ class RouterAgent(BaseAgent):
                 return "action"
             if "READ" in label:
                 return "query"
-            # Unexpected token — fall through to keyword scan
         except Exception as exc:
             self.log_error("LLM classification failed, using keywords", exc=exc)
 
-        return self._keyword_classify(message)
+        return "query"
 
     def _keyword_classify(self, message: str) -> str:
         """Deterministic keyword-based fallback classifier."""

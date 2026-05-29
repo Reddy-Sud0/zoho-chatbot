@@ -1,4 +1,4 @@
-/** Extract readable text from backend/Gemini payloads. */
+
 export function extractMessageText(content) {
   if (!content) return "";
   if (typeof content === "string") {

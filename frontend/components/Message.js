@@ -1,6 +1,5 @@
 import { extractMessageText } from "../utils/formatMessage";
 
-/* ─── Inline markdown renderer ─── */
 function renderMarkdown(text) {
   const lines = text.split("\n");
   const blocks = [];
@@ -82,12 +81,10 @@ function renderMarkdown(text) {
   return blocks;
 }
 
-/* ─── Bot avatar ─── */
 function BotAvatar() {
   return (
     <div className="relative shrink-0">
       <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 to-indigo-700 shadow-lg glow-violet-sm">
-        {/* Simple robot icon SVG */}
         <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5 text-white" stroke="currentColor" strokeWidth="1.8">
           <rect x="5" y="9" width="14" height="10" rx="2" />
           <circle cx="9.5" cy="13.5" r="1" fill="currentColor" stroke="none" />
@@ -102,7 +99,6 @@ function BotAvatar() {
   );
 }
 
-/* ─── User avatar ─── */
 function UserAvatar() {
   return (
     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-fuchsia-500 to-violet-600 text-xs font-bold text-white shadow-lg">

@@ -8,4 +8,3 @@ export async function sendChat({ sessionId, message, confirmed }) {
   const { data } = await axios.post(`${API_BASE}/chat`, payload);
   return data;
 }
-
