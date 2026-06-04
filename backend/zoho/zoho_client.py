@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
+from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
 import httpx
@@ -73,6 +74,68 @@ def _as_list(payload: Any, *, raise_on_error: bool = False) -> list:
             if isinstance(val, list):
                 return val
     return []
+
+
+_PRIORITY_MAP = {
+    "high": "high",
+    "medium": "medium",
+    "low": "low",
+    "none": "none",
+}
+
+
+def _normalize_priority(value: str) -> str:
+    """Map human-friendly priority labels to Zoho API v3 lowercase values."""
+    key = str(value).strip().lower()
+    if key not in _PRIORITY_MAP:
+        raise ValueError(
+            f"Invalid priority '{value}'. Use one of: High, Medium, Low, None."
+        )
+    return _PRIORITY_MAP[key]
+
+
+def _extract_task_owner_name(task: dict) -> str:
+    """Resolve a display name for task utilisation from v3 task payloads."""
+    owners_block = task.get("owners_and_work") or {}
+    owners = owners_block.get("owners") if isinstance(owners_block, dict) else None
+    if isinstance(owners, list) and owners:
+        name = str(owners[0].get("name") or "").strip()
+        if name and name.lower() != "unassigned user":
+            return name
+
+    owner_info = task.get("owner") or {}
+    if isinstance(owner_info, dict):
+        name = str(owner_info.get("name") or "").strip()
+        if name:
+            return name
+
+    for key in ("person_responsible_name", "owner_name"):
+        name = str(task.get(key) or "").strip()
+        if name:
+            return name
+
+    return "Unassigned"
+
+
+def _parse_iso_date(value: str) -> date:
+    return datetime.strptime(str(value).strip()[:10], "%Y-%m-%d").date()
+
+
+def _apply_due_date(body: dict[str, Any], due_date: str, *, start_date: str | None = None) -> None:
+    """
+    Zoho Projects v3 expects ``start_date`` and ``end_date`` (not ``due_date``).
+    Strict projects require end_date > start_date.
+    """
+    end = _parse_iso_date(due_date)
+    if start_date:
+        start = _parse_iso_date(start_date)
+    else:
+        start = min(end - timedelta(days=1), date.today())
+    if end <= start:
+        start = end - timedelta(days=1)
+    body["start_date"] = start.isoformat()
+    body["end_date"] = end.isoformat()
+
 
 class ZohoClient:
     """
@@ -207,6 +270,30 @@ class ZohoClient:
 
         return None
 
+    async def _resolve_status(self, project_id: str, status: str) -> dict:
+        """
+        Resolve a status string to the ``{"id": ...}`` or ``{"name": ...}``
+        object expected by Zoho Projects API v3.
+        """
+        raw = str(status).strip()
+        if not raw:
+            raise ValueError("Status value is required.")
+
+        if raw.isdigit():
+            return {"id": raw}
+
+        tasks = await self.list_tasks(project_id)
+        for task in tasks:
+            task_status = task.get("status") or {}
+            if not isinstance(task_status, dict):
+                continue
+            status_id = str(task_status.get("id") or "")
+            status_name = str(task_status.get("name") or "")
+            if status_name.lower() == raw.lower() and status_id:
+                return {"id": status_id}
+
+        return {"name": raw}
+
     async def list_portals(self) -> list:
         """Return all Zoho Projects portals accessible by this token."""
         url = f"{self._base}/portals"
@@ -272,7 +359,11 @@ class ZohoClient:
     async def get_task_details(self, project_id: str, task_id: str) -> dict:
         """Return full detail of a single task."""
         url = self._portal_url("projects", project_id, "tasks", task_id)
-        data = await self._get_json(url)
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, headers=self._headers, timeout=30)
+        if resp.status_code >= 400:
+            self._raise_with_body(resp)
+        data = resp.json()
         return data if isinstance(data, dict) else {"task": data}
 
     async def create_task(self, project_id: str, payload: dict) -> dict:
@@ -288,9 +379,9 @@ class ZohoClient:
         if payload.get("description"):
             body["description"] = payload["description"]
         if payload.get("priority"):
-            body["priority"] = payload["priority"]
+            body["priority"] = _normalize_priority(payload["priority"])
         if payload.get("due_date"):
-            body["due_date"] = payload["due_date"]
+            _apply_due_date(body, payload["due_date"])
 
         assignee = payload.get("person_responsible")
         if assignee:
@@ -326,19 +417,25 @@ class ZohoClient:
             body["name"] = payload["name"]
 
         if payload.get("status"):
-            raw_status = payload["status"]
-
-            body["status"] = (
-                {"id": raw_status}
-                if str(raw_status).isdigit()
-                else {"name": raw_status}
-            )
+            body["status"] = await self._resolve_status(project_id, payload["status"])
 
         if payload.get("priority"):
-            body["priority"] = payload["priority"]
+            body["priority"] = _normalize_priority(payload["priority"])
 
         if payload.get("due_date"):
-            body["due_date"] = payload["due_date"]
+            existing_start = None
+            if payload.get("start_date"):
+                existing_start = payload["start_date"]
+            else:
+                try:
+                    current = await self.get_task_details(project_id, task_id)
+                    for key in ("start_date", "scheduled_start_date"):
+                        if current.get(key):
+                            existing_start = str(current[key])[:10]
+                            break
+                except Exception as exc:
+                    logger.debug("Could not read existing start_date: %s", exc)
+            _apply_due_date(body, payload["due_date"], start_date=existing_start)
 
         assignee = payload.get("person_responsible")
         if assignee:
@@ -401,18 +498,7 @@ class ZohoClient:
         counts: Counter[str] = Counter()
 
         for task in tasks:
-            owner_info = task.get("owner") or {}
-            if isinstance(owner_info, dict):
-                owner = owner_info.get("name") or ""
-            else:
-                owner = str(owner_info)
-
-            owner = (
-                owner
-                or task.get("person_responsible_name", "")
-                or task.get("owner_name", "")
-                or "Unassigned"
-            )
-            counts[str(owner).strip() or "Unassigned"] += 1
+            owner = _extract_task_owner_name(task)
+            counts[owner] += 1
 
         return dict(sorted(counts.items(), key=lambda kv: kv[1], reverse=True))

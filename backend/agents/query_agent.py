@@ -96,22 +96,26 @@ class QueryAgent(BaseAgent):
             long_term=json.dumps(state.get("long_term_context") or {}, ensure_ascii=False),
         )
 
-        augmented_user_content = (
-            f"{user_message}\n\n"
-            f"[ctx: access_token={state['access_token']} "
-            f"portal_id={state['portal_id']}]"
-        )
-
         conversation: list = [
             SystemMessage(content=system_prompt),
-            HumanMessage(content=augmented_user_content),
+            HumanMessage(content=user_message),
         ]
 
-        reply = await self._tool_loop(conversation)
+        reply = await self._tool_loop(
+            conversation,
+            access_token=state["access_token"],
+            portal_id=state["portal_id"],
+        )
         state["messages"].append(reply)
         return state
 
-    async def _tool_loop(self, messages: list) -> AIMessage:
+    async def _tool_loop(
+        self,
+        messages: list,
+        *,
+        access_token: str,
+        portal_id: str,
+    ) -> AIMessage:
         """
         ReAct-style tool loop.
 
@@ -163,7 +167,11 @@ class QueryAgent(BaseAgent):
             )
 
             for call in tool_calls:
-                result = await self._invoke_tool(call)
+                result = await self._invoke_tool(
+                    call,
+                    access_token=access_token,
+                    portal_id=portal_id,
+                )
 
                 tool_call_id = call.get("id") or str(uuid.uuid4())
                 current.append(ToolMessage(content=result, tool_call_id=tool_call_id))
@@ -176,10 +184,18 @@ class QueryAgent(BaseAgent):
             )
         )
 
-    async def _invoke_tool(self, call: dict) -> str:
+    async def _invoke_tool(
+        self,
+        call: dict,
+        *,
+        access_token: str,
+        portal_id: str,
+    ) -> str:
         """Invoke a single tool call dict safely, returning JSON string output."""
         name = call.get("name", "")
-        args = call.get("args") or {}
+        args = dict(call.get("args") or {})
+        args["access_token"] = access_token
+        args["portal_id"] = portal_id
         tool = _TOOL_MAP.get(name)
 
         if tool is None:

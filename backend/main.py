@@ -76,6 +76,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def _startup() -> None:
+    settings.validate()
     init_db()
     logger.info("Database initialised")
 
